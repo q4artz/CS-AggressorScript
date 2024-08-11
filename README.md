@@ -66,3 +66,9 @@ Modules included:
 			--- Find Appli whitelist from Registry.pol
 			--- Check language permitted by applocker
 			--- powershell writeable path
+
+
+TO BE ADDED:
+
+ 	UploadAndRemoteExec
+  	AutoSetGlobalVars
