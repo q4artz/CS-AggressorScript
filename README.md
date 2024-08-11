@@ -1,11 +1,24 @@
 # CS-AggressorScript
 
-Credits to Zero-Point Security and rastamouse.
+Credits to Zero-Point Security and rastamouse for jump Dcom section.
 
 Modules included:
 
 	Initial Link
 		-- sleep time
+
+	Createnetonly ( Rubeus Createnetonly )
+		-- createnetonly
+		-- program
+		-- domain
+		-- username
+		-- password
+		-- ptt
+		-- ticket
+
+	DumpTicket ( Rubeus Dump Ticket )
+		-- Luid
+  		-- Service
 
 	Domain Recon
 		-- Get Domain
@@ -34,10 +47,10 @@ Modules included:
 
 	Vulnerability enumerate
 		-- Import Powerview
-		-- ADsearch ( Kerberoast, ASREProast, KUD, CD, S4U2self, 
-		-- Powerpick ( RBCD, modify GPO, create link GPO, MSSQL recon, SCCM, LAPS
+		-- ADsearch ( Kerberoast, ASREProast, KUD, CD, S4U2self )
+		-- Powerpick ( RBCD, modify GPO, create link GPO, MSSQL recon, SCCM, LAPS )
 		-- SeatBelt
-		-- Certify ( /vulnerable, 
+		-- Certify ( /vulnerable, cas )
 		-- SQLrecon
 			-- Import PowerUpSQL
 			+++ Eumerations
@@ -53,12 +66,3 @@ Modules included:
 			--- Find Appli whitelist from Registry.pol
 			--- Check language permitted by applocker
 			--- powershell writeable path
-
-	Createnetonly
-            -- createnetonly
-            -- program
-            -- domain
-            -- username
-            -- password
-            -- ptt
-            -- ticket
