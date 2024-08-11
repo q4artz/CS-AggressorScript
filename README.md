@@ -1,6 +1,6 @@
 # CS-AggressorScript
 
-Credits to Zero-Point Security and rastamouse for jump Dcom section.
+Credits to Zero-Point Security and rastamouse for invoke_dcom section.
 
 Modules included:
 
