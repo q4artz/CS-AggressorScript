@@ -70,5 +70,6 @@ Modules included:
 
 TO BE ADDED:
 
+	BOF accompanying this cna
  	UploadAndRemoteExec
   	AutoSetGlobalVars
